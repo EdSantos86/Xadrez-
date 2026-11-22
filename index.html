@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#2b2521">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Xadrez</title>
+<style>
+  :root {
+    --bg: #2b2521;
+    --panel: #3a322c;
+    --text: #f2ebe3;
+    --muted: #b9ab9c;
+    --light: #eed8b5;
+    --dark: #b07f57;
+    --sel: rgba(255, 215, 64, .65);
+    --last: rgba(205, 210, 70, .45);
+    --check: radial-gradient(circle, rgba(255,40,40,.95) 0%, rgba(230,0,0,.55) 45%, rgba(200,0,0,0) 75%);
+    --accent: #e0a458;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100dvh;
+    padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+  .wrap { width: min(100vw - 16px, 100dvh - 210px, 640px); min-width: 280px; display: flex; flex-direction: column; gap: 8px; }
+  .player {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel); border-radius: 10px; padding: 6px 10px; min-height: 44px;
+    border: 2px solid transparent; transition: border-color .2s;
+  }
+  .player.active { border-color: var(--accent); }
+  .player .name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .player .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #000; }
+  .player .captured { font-size: 18px; line-height: 1; letter-spacing: -2px; color: var(--muted); text-align: right; overflow: hidden; white-space: nowrap; }
+  .player .captured small { letter-spacing: 0; margin-left: 6px; font-size: 13px; }
+
+  #board {
+    position: relative; width: 100%; aspect-ratio: 1;
+    display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+    border-radius: 6px; overflow: hidden; box-shadow: 0 6px 20px rgba(0,0,0,.45);
+    touch-action: manipulation;
+  }
+  .sq { position: relative; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .sq.l { background: var(--light); }
+  .sq.d { background: var(--dark); }
+  .sq.last::before { content: ""; position: absolute; inset: 0; background: var(--last); }
+  .sq.sel::before { content: ""; position: absolute; inset: 0; background: var(--sel); }
+  .sq.check::before { content: ""; position: absolute; inset: 0; background: var(--check); }
+  .sq.move::after {
+    content: ""; position: absolute; width: 30%; height: 30%; border-radius: 50%;
+    background: rgba(20, 20, 20, .28); pointer-events: none;
+  }
+  .sq.capture::after {
+    content: ""; position: absolute; inset: 4%; border-radius: 50%;
+    border: calc(var(--sq) * .08) solid rgba(20, 20, 20, .28); pointer-events: none;
+  }
+  .coord { position: absolute; font-size: calc(var(--sq) * .2); font-weight: 700; pointer-events: none; z-index: 1; }
+  .coord.f { right: 3px; bottom: 1px; }
+  .coord.r { left: 3px; top: 1px; }
+  .sq.l .coord { color: var(--dark); }
+  .sq.d .coord { color: var(--light); }
+
+  .pc {
+    position: relative; z-index: 2; font-size: calc(var(--sq) * .8); line-height: 1;
+    font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", "Apple Symbols", serif;
+    pointer-events: none; transition: transform .15s;
+  }
+  .pc.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000, 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 3px rgba(0,0,0,.4); }
+  .pc.b { color: #1d1a18; text-shadow: 0 0 1px #fff8, 0 2px 3px rgba(0,0,0,.35); }
+  .sq.sel .pc { transform: scale(1.1); }
+
+  .status { text-align: center; font-size: 16px; min-height: 22px; font-weight: 600; }
+  .status.alert { color: #ff7b6b; }
+  .controls { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 15px; color: var(--text); background: var(--panel);
+    border: 1px solid #5a4d43; border-radius: 10px; padding: 10px 14px; min-height: 44px; cursor: pointer;
+  }
+  button:active { background: #4c4139; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+  .modal.show { display: flex; }
+  .card { background: var(--panel); border-radius: 14px; padding: 18px; text-align: center; max-width: 360px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+  .card h2 { margin: 0 0 12px; font-size: 20px; }
+  .card p { margin: 0 0 14px; color: var(--muted); }
+  .promo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .promo button { font-size: 44px; padding: 6px 0; background: var(--light); line-height: 1.1; }
+  .promo button .pc { font-size: 44px; }
+  .card .row { display: flex; gap: 8px; justify-content: center; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="player" id="top">
+      <div class="name"><span class="dot" style="background:#1d1a18"></span>Pretas</div>
+      <div class="captured" id="capB"></div>
+    </div>
+    <div id="board"></div>
+    <div class="player" id="bottom">
+      <div class="name"><span class="dot" style="background:#fff"></span>Brancas</div>
+      <div class="captured" id="capW"></div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="controls">
+      <button id="undo">↶ Desfazer</button>
+      <button id="flip">⟳ Girar a cada lance</button>
+      <button id="new">Novo jogo</button>
+    </div>
+  </div>
+
+  <div class="modal" id="promoModal">
+    <div class="card">
+      <h2>Promover peão</h2>
+      <div class="promo" id="promoChoices"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="msgModal">
+    <div class="card">
+      <h2 id="msgTitle"></h2>
+      <p id="msgText"></p>
+      <div class="row" id="msgButtons"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Representação ----------
+  // Tabuleiro: array 64, índice = linha*8 + coluna; linha 0 = 8ª fileira (lado das pretas).
+  // Peça: { t: 'p'|'n'|'b'|'r'|'q'|'k', c: 'w'|'b' } ou null.
+  const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟︎' };
+  const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  const FILES = 'abcdefgh';
+
+  let state, history, selected, legalFromSel, rotateMode, pendingPromo, gameOver;
+
+  function initialState() {
+    const board = new Array(64).fill(null);
+    const back = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
+    for (let c = 0; c < 8; c++) {
+      board[c] = { t: back[c], c: 'b' };
+      board[8 + c] = { t: 'p', c: 'b' };
+      board[48 + c] = { t: 'p', c: 'w' };
+      board[56 + c] = { t: back[c], c: 'w' };
+    }
+    return {
+      board,
+      turn: 'w',
+      castle: { wK: true, wQ: true, bK: true, bQ: true },
+      ep: -1,           // casa alvo de en passant
+      halfmove: 0,
+      fullmove: 1,
+      lastMove: null,
+      captured: { w: [], b: [] }, // peças capturadas POR cada cor
+      positions: {},
+    };
+  }
+
+  const clone = s => ({
+    board: s.board.slice(),
+    turn: s.turn,
+    castle: { ...s.castle },
+    ep: s.ep,
+    halfmove: s.halfmove,
+    fullmove: s.fullmove,
+    lastMove: s.lastMove,
+    captured: { w: s.captured.w.slice(), b: s.captured.b.slice() },
+    positions: { ...s.positions },
+  });
+
+  const rc = i => [i >> 3, i & 7];
+  const idx = (r, c) => r * 8 + c;
+  const onBoard = (r, c) => r >= 0 && r < 8 && c >= 0 && c < 8;
+  const opp = c => (c === 'w' ? 'b' : 'w');
+
+  // ---------- Ataques ----------
+  function isAttacked(board, sq, by) {
+    const [r, c] = rc(sq);
+    // Peões
+    const pr = by === 'w' ? r + 1 : r - 1;
+    for (const dc of [-1, 1]) {
+      if (onBoard(pr, c + dc)) {
+        const p = board[idx(pr, c + dc)];
+        if (p && p.c === by && p.t === 'p') return true;
+      }
+    }
+    // Cavalos
+    for (const [dr, dc] of [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]]) {
+      const nr = r + dr, nc = c + dc;
+      if (onBoard(nr, nc)) {
+        const p = board[idx(nr, nc)];
+        if (p && p.c === by && p.t === 'n') return true;
+      }
+    }
+    // Rei
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      if (!dr && !dc) continue;
+      const nr = r + dr, nc = c + dc;
+      if (onBoard(nr, nc)) {
+        const p = board[idx(nr, nc)];
+        if (p && p.c === by && p.t === 'k') return true;
+      }
+    }
+    // Deslizantes
+    const lines = [
+      [[1,0],[-1,0],[0,1],[0,-1]], ['r','q'],
+      [[1,1],[1,-1],[-1,1],[-1,-1]], ['b','q'],
+    ];
+    for (let k = 0; k < lines.length; k += 2) {
+      for (const [dr, dc] of lines[k]) {
+        let nr = r + dr, nc = c + dc;
+        while (onBoard(nr, nc)) {
+          const p = board[idx(nr, nc)];
+          if (p) {
+            if (p.c === by && lines[k + 1].includes(p.t)) return true;
+            break;
+          }
+          nr += dr; nc += dc;
+        }
+      }
+    }
+    return false;
+  }
+
+  const kingSq = (board, color) => board.findIndex(p => p && p.t === 'k' && p.c === color);
+  const inCheck = (s, color) => isAttacked(s.board, kingSq(s.board, color), opp(color));
+
+  // ---------- Geração de lances ----------
+  function pseudoMoves(s, from) {
+    const p = s.board[from];
+    if (!p) return [];
+    const [r, c] = rc(from);
+    const moves = [];
+    const add = (to, extra = {}) => moves.push({ from, to, ...extra });
+
+    if (p.t === 'p') {
+      const dir = p.c === 'w' ? -1 : 1;
+      const start = p.c === 'w' ? 6 : 1;
+      const last = p.c === 'w' ? 0 : 7;
+      const push = (to, extra = {}) => {
+        if (rc(to)[0] === last) add(to, { ...extra, promo: true });
+        else add(to, extra);
+      };
+      if (onBoard(r + dir, c) && !s.board[idx(r + dir, c)]) {
+        push(idx(r + dir, c));
+        if (r === start && !s.board[idx(r + 2 * dir, c)]) add(idx(r + 2 * dir, c), { double: true });
+      }
+      for (const dc of [-1, 1]) {
+        const nr = r + dir, nc = c + dc;
+        if (!onBoard(nr, nc)) continue;
+        const t = idx(nr, nc);
+        const target = s.board[t];
+        if (target && target.c !== p.c) push(t);
+        else if (t === s.ep) add(t, { enPassant: true });
+      }
+    } else if (p.t === 'n' || p.t === 'k') {
+      const deltas = p.t === 'n'
+        ? [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]]
+        : [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+      for (const [dr, dc] of deltas) {
+        const nr = r + dr, nc = c + dc;
+        if (!onBoard(nr, nc)) continue;
+        const target = s.board[idx(nr, nc)];
+        if (!target || target.c !== p.c) add(idx(nr, nc));
+      }
+      if (p.t === 'k') {
+        const row = p.c === 'w' ? 7 : 0;
+        const enemy = opp(p.c);
+        if (from === idx(row, 4) && !isAttacked(s.board, from, enemy)) {
+          // Roque pequeno
+          if (s.castle[p.c + 'K'] && !s.board[idx(row, 5)] && !s.board[idx(row, 6)] &&
+              s.board[idx(row, 7)]?.t === 'r' && s.board[idx(row, 7)]?.c === p.c &&
+              !isAttacked(s.board, idx(row, 5), enemy) && !isAttacked(s.board, idx(row, 6), enemy)) {
+            add(idx(row, 6), { castle: 'K' });
+          }
+          // Roque grande
+          if (s.castle[p.c + 'Q'] && !s.board[idx(row, 3)] && !s.board[idx(row, 2)] && !s.board[idx(row, 1)] &&
+              s.board[idx(row, 0)]?.t === 'r' && s.board[idx(row, 0)]?.c === p.c &&
+              !isAttacked(s.board, idx(row, 3), enemy) && !isAttacked(s.board, idx(row, 2), enemy)) {
+            add(idx(row, 2), { castle: 'Q' });
+          }
+        }
+      }
+    } else {
+      const dirs = [];
+      if (p.t !== 'b') dirs.push([1,0],[-1,0],[0,1],[0,-1]);
+      if (p.t !== 'r') dirs.push([1,1],[1,-1],[-1,1],[-1,-1]);
+      for (const [dr, dc] of dirs) {
+        let nr = r + dr, nc = c + dc;
+        while (onBoard(nr, nc)) {
+          const target = s.board[idx(nr, nc)];
+          if (!target) add(idx(nr, nc));
+          else { if (target.c !== p.c) add(idx(nr, nc)); break; }
+          nr += dr; nc += dc;
+        }
+      }
+    }
+    return moves;
+  }
+
+  function legalMoves(s, from) {
+    const p = s.board[from];
+    if (!p || p.c !== s.turn) return [];
+    return pseudoMoves(s, from).filter(m => {
+      const ns = applyMove(s, { ...m, promoTo: 'q' }, true);
+      return !isAttacked(ns.board, kingSq(ns.board, p.c), opp(p.c));
+    });
+  }
+
+  function allLegalMoves(s) {
+    const out = [];
+    for (let i = 0; i < 64; i++) if (s.board[i]?.c === s.turn) out.push(...legalMoves(s, i));
+    return out;
+  }
+
+  // ---------- Aplicar lance ----------
+  function posKey(s) {
+    return s.board.map(p => (p ? (p.c === 'w' ? p.t.toUpperCase() : p.t) : '.')).join('') +
+      s.turn + Object.entries(s.castle).filter(e => e[1]).map(e => e[0]).join('') + s.ep;
+  }
+
+  function applyMove(s, m, light = false) {
+    const ns = light ? { ...s, board: s.board.slice(), castle: { ...s.castle } } : clone(s);
+    const b = ns.board;
+    const p = b[m.from];
+    let captured = b[m.to];
+
+    b[m.to] = p;
+    b[m.from] = null;
+
+    if (m.enPassant) {
+      const capSq = m.to + (p.c === 'w' ? 8 : -8);
+      captured = b[capSq];
+      b[capSq] = null;
+    }
+    if (m.castle) {
+      const row = p.c === 'w' ? 7 : 0;
+      if (m.castle === 'K') { b[idx(row, 5)] = b[idx(row, 7)]; b[idx(row, 7)] = null; }
+      else { b[idx(row, 3)] = b[idx(row, 0)]; b[idx(row, 0)] = null; }
+    }
+    if (m.promo) b[m.to] = { t: m.promoTo || 'q', c: p.c };
+
+    // Direitos de roque
+    if (p.t === 'k') { ns.castle[p.c + 'K'] = false; ns.castle[p.c + 'Q'] = false; }
+    const touch = sq => {
+      if (sq === 63) ns.castle.wK = false;
+      if (sq === 56) ns.castle.wQ = false;
+      if (sq === 7) ns.castle.bK = false;
+      if (sq === 0) ns.castle.bQ = false;
+    };
+    touch(m.from); touch(m.to);
+
+    ns.ep = m.double ? (m.from + m.to) / 2 : -1;
+    ns.turn = opp(s.turn);
+
+    if (!light) {
+      ns.halfmove = (p.t === 'p' || captured) ? 0 : s.halfmove + 1;
+      if (s.turn === 'b') ns.fullmove++;
+      if (captured) ns.captured[p.c].push(captured.t);
+      ns.lastMove = { from: m.from, to: m.to };
+      const key = posKey(ns);
+      ns.positions[key] = (ns.positions[key] || 0) + 1;
+    }
+    return ns;
+  }
+
+  function insufficientMaterial(board) {
+    const pcs = board.map((p, i) => p && { ...p, i }).filter(p => p && p.t !== 'k');
+    if (pcs.length === 0) return true;
+    if (pcs.length === 1 && (pcs[0].t === 'b' || pcs[0].t === 'n')) return true;
+    if (pcs.every(p => p.t === 'b')) {
+      const colors = new Set(pcs.map(p => ((p.i >> 3) + (p.i & 7)) % 2));
+      return colors.size === 1;
+    }
+    return false;
+  }
+
+  // ---------- Interface ----------
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const squares = [];
+  let flipped = false; // girar manualmente o tabuleiro
+
+  function buildBoard() {
+    boardEl.innerHTML = '';
+    for (let i = 0; i < 64; i++) {
+      const el = document.createElement('div');
+      el.addEventListener('pointerdown', e => { e.preventDefault(); onTap(Number(el.dataset.sq)); });
+      boardEl.appendChild(el);
+      squares.push(el);
+    }
+  }
+
+  function updateSquareSize() {
+    const size = boardEl.getBoundingClientRect().width / 8;
+    boardEl.style.setProperty('--sq', size + 'px');
+  }
+
+  function render() {
+    const s = state;
+    const checkSq = inCheck(s, s.turn) ? kingSq(s.board, s.turn) : -1;
+    const targets = new Map(legalFromSel.map(m => [m.to, m]));
+
+    for (let v = 0; v < 64; v++) {
+      const sq = flipped ? 63 - v : v;
+      const el = squares[v];
+      el.dataset.sq = sq;
+      const [r, c] = rc(sq);
+      const cls = ['sq', (r + c) % 2 ? 'd' : 'l'];
+      if (s.lastMove && (s.lastMove.from === sq || s.lastMove.to === sq)) cls.push('last');
+      if (sq === selected) cls.push('sel');
+      if (sq === checkSq) cls.push('check');
+      if (targets.has(sq)) cls.push(s.board[sq] || targets.get(sq).enPassant ? 'capture' : 'move');
+      el.className = cls.join(' ');
+
+      let html = '';
+      const p = s.board[sq];
+      if (p) html += `<span class="pc ${p.c}">${GLYPH[p.t]}</span>`;
+      const vr = v >> 3, vc = v & 7;
+      if (vr === 7) html += `<span class="coord f">${FILES[c]}</span>`;
+      if (vc === 0) html += `<span class="coord r">${8 - r}</span>`;
+      el.innerHTML = html;
+    }
+
+    // Capturas
+    const matW = s.captured.w.reduce((a, t) => a + VALUE[t], 0);
+    const matB = s.captured.b.reduce((a, t) => a + VALUE[t], 0);
+    const capHtml = (list, color, diff) => {
+      const sorted = list.slice().sort((a, b) => VALUE[b] - VALUE[a]);
+      return sorted.map(t => GLYPH[t]).join('') + (diff > 0 ? `<small>+${diff}</small>` : '');
+    };
+    const topColor = flipped ? 'w' : 'b';
+    const botColor = flipped ? 'b' : 'w';
+    const capOf = col => capHtml(s.captured[col], opp(col), col === 'w' ? matW - matB : matB - matW);
+    document.querySelector('#top .name').innerHTML = nameHtml(topColor);
+    document.querySelector('#bottom .name').innerHTML = nameHtml(botColor);
+    document.getElementById('capB').innerHTML = capOf(topColor);
+    document.getElementById('capW').innerHTML = capOf(botColor);
+    document.getElementById('top').classList.toggle('active', !gameOver && s.turn === topColor);
+    document.getElementById('bottom').classList.toggle('active', !gameOver && s.turn === botColor);
+
+    document.getElementById('undo').disabled = history.length === 0;
+    document.getElementById('flip').classList.toggle('on', rotateMode);
+  }
+
+  const nameHtml = c => `<span class="dot" style="background:${c === 'w' ? '#fff' : '#1d1a18'}"></span>${c === 'w' ? 'Brancas' : 'Pretas'}`;
+
+  function setStatus(text, alert = false) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle('alert', alert);
+  }
+
+  function updateStatus() {
+    const s = state;
+    const name = s.turn === 'w' ? 'Brancas' : 'Pretas';
+    const moves = allLegalMoves(s);
+    const check = inCheck(s, s.turn);
+    gameOver = false;
+
+    if (moves.length === 0) {
+      gameOver = true;
+      if (check) {
+        const winner = s.turn === 'w' ? 'Pretas' : 'Brancas';
+        setStatus(`Xeque-mate! ${winner} vencem.`, true);
+        showMessage('Xeque-mate!', `${winner} vencem a partida.`);
+      } else {
+        setStatus('Empate por afogamento.', true);
+        showMessage('Empate', 'Afogamento: o jogador da vez não tem lances legais.');
+      }
+    } else if (insufficientMaterial(s.board)) {
+      gameOver = true;
+      setStatus('Empate por material insuficiente.', true);
+      showMessage('Empate', 'Material insuficiente para dar xeque-mate.');
+    } else if (s.halfmove >= 100) {
+      gameOver = true;
+      setStatus('Empate pela regra dos 50 lances.', true);
+      showMessage('Empate', 'Regra dos 50 lances sem captura ou movimento de peão.');
+    } else if (s.positions[posKey(s)] >= 3) {
+      gameOver = true;
+      setStatus('Empate por repetição tripla.', true);
+      showMessage('Empate', 'A mesma posição se repetiu três vezes.');
+    } else if (check) {
+      setStatus(`${name} em xeque!`, true);
+    } else {
+      setStatus(`Vez das ${name}`);
+    }
+  }
+
+  function onTap(sq) {
+    if (gameOver || pendingPromo) return;
+    const s = state;
+    const target = legalFromSel.find(m => m.to === sq);
+    if (selected !== -1 && target) {
+      if (target.promo) return askPromotion(target);
+      return doMove(target);
+    }
+    if (s.board[sq] && s.board[sq].c === s.turn && sq !== selected) {
+      selected = sq;
+      legalFromSel = legalMoves(s, sq);
+    } else {
+      selected = -1;
+      legalFromSel = [];
+    }
+    render();
+  }
+
+  function doMove(m) {
+    history.push(state);
+    state = applyMove(state, m);
+    selected = -1;
+    legalFromSel = [];
+    if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
+    if (rotateMode) flipped = state.turn === 'b';
+    updateStatus();
+    render();
+  }
+
+  function askPromotion(m) {
+    pendingPromo = m;
+    const color = state.board[m.from].c;
+    const box = document.getElementById('promoChoices');
+    box.innerHTML = '';
+    for (const t of ['q', 'r', 'b', 'n']) {
+      const btn = document.createElement('button');
+      btn.innerHTML = `<span class="pc ${color}">${GLYPH[t]}</span>`;
+      btn.addEventListener('click', () => {
+        document.getElementById('promoModal').classList.remove('show');
+        const mv = { ...pendingPromo, promoTo: t };
+        pendingPromo = null;
+        doMove(mv);
+      });
+      box.appendChild(btn);
+    }
+    document.getElementById('promoModal').classList.add('show');
+  }
+
+  function showMessage(title, text, buttons) {
+    document.getElementById('msgTitle').textContent = title;
+    document.getElementById('msgText').textContent = text;
+    const row = document.getElementById('msgButtons');
+    row.innerHTML = '';
+    const list = buttons || [
+      { label: 'Novo jogo', fn: newGame },
+      { label: 'Ver tabuleiro', fn: () => {} },
+    ];
+    for (const b of list) {
+      const btn = document.createElement('button');
+      btn.textContent = b.label;
+      btn.addEventListener('click', () => { hideMessage(); b.fn(); });
+      row.appendChild(btn);
+    }
+    document.getElementById('msgModal').classList.add('show');
+  }
+  const hideMessage = () => document.getElementById('msgModal').classList.remove('show');
+
+  function newGame() {
+    state = initialState();
+    state.positions[posKey(state)] = 1;
+    history = [];
+    selected = -1;
+    legalFromSel = [];
+    pendingPromo = null;
+    flipped = false;
+    updateStatus();
+    render();
+  }
+
+  document.getElementById('undo').addEventListener('click', () => {
+    if (!history.length) return;
+    state = history.pop();
+    selected = -1; legalFromSel = [];
+    if (rotateMode) flipped = state.turn === 'b';
+    hideMessage();
+    updateStatus();
+    render();
+  });
+
+  document.getElementById('flip').addEventListener('click', () => {
+    rotateMode = !rotateMode;
+    flipped = rotateMode ? state.turn === 'b' : false;
+    setRotatePref();
+    render();
+  });
+
+  document.getElementById('new').addEventListener('click', () => {
+    if (history.length === 0) return newGame();
+    showMessage('Novo jogo', 'Deseja abandonar a partida atual e começar de novo?', [
+      { label: 'Sim, novo jogo', fn: newGame },
+      { label: 'Cancelar', fn: () => {} },
+    ]);
+  });
+
+  function setRotatePref() {
+    try { localStorage.setItem('xadrez-rotate', rotateMode ? '1' : '0'); } catch (e) {}
+  }
+  try { rotateMode = localStorage.getItem('xadrez-rotate') === '1'; } catch (e) { rotateMode = false; }
+
+  window.addEventListener('resize', updateSquareSize);
+  buildBoard();
+  newGame();
+  updateSquareSize();
+
+  // Exposto para testes
+  window.__chess = { get state() { return state; }, allLegalMoves: () => allLegalMoves(state), applyMove, initialState, posKey, allLegal: allLegalMoves };
+})();
+</script>
+</body>
+</html>
